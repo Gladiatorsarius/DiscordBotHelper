@@ -9,6 +9,24 @@ from pathlib import Path
 from threading import Event
 
 
+def resolve_python_interpreter(working_directory: Path) -> Path:
+    environment_roots = [
+        working_directory / ".venv",
+        working_directory / "venv",
+    ]
+    active_environment = os.environ.get("VIRTUAL_ENV")
+    if active_environment:
+        environment_roots.append(Path(active_environment))
+
+    executable_name = "python.exe" if os.name == "nt" else "python"
+    for environment_root in environment_roots:
+        interpreter = environment_root / ("Scripts" if os.name == "nt" else "bin") / executable_name
+        if interpreter.is_file():
+            return interpreter
+
+    return Path(sys.executable)
+
+
 def stream_output(pipe: object) -> None:
     for line in iter(pipe.readline, ""):
         if line:
@@ -19,13 +37,14 @@ def stream_output(pipe: object) -> None:
 def start_bot(bot_file: Path, working_directory: Path) -> subprocess.Popen[str]:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    python_interpreter = resolve_python_interpreter(working_directory)
 
     creation_flags = 0
     if os.name == "nt":
         creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
 
     process = subprocess.Popen(
-        [sys.executable, "-u", str(bot_file)],
+        [str(python_interpreter), "-u", str(bot_file)],
         cwd=working_directory,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -115,6 +134,7 @@ def watch_for_enter(restart_event: Event, shutdown_event: Event) -> None:
 
 def run(bot_file: Path, force: bool = False) -> None:
     working_directory = Path.cwd()
+    python_interpreter = resolve_python_interpreter(working_directory)
     restart_file = working_directory / "restart.txt"
     startup_file = working_directory / "startup.txt"
     restart_event = Event()
@@ -128,6 +148,7 @@ def run(bot_file: Path, force: bool = False) -> None:
         print("Bot running. Press Enter to signal the bot and restart it.")
     else:
         print("Bot running. Press Enter or create restart.txt to request shutdown.")
+    print(f"Using Python interpreter: {python_interpreter}")
     threading.Thread(
         target=watch_for_enter,
         args=(restart_event, shutdown_event),
